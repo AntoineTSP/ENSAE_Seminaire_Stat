@@ -1,0 +1,232 @@
+---
+title: "[ENSAE, 2A] Séminaire statistique 2023"
+author: "Hassan Maissoro"
+output: 
+  html_document:
+    toc : true
+    toc_depth : 4
+    number_sections: true
+    theme: readable
+    highlight: tango
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    css: style.css
+    fig_width: 8
+    fig_height: 3
+date: "2023-03-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+install.packages("manipulateWidget")
+```
+
+
+<p id = "p_"><b> Sujet : modélisation de la production d'électricité d'un barrage </b></p>
+```{r}
+library(data.table)
+library(magrittr)
+library(dygraphs)
+library(manipulateWidget)
+library(pls)
+```
+
+
+
+# Données
+
+Les données utilisées dans le cadre de ce séminaire ont été simulées.
+On se concentre sur un seul barrage hydroélectrique.
+ 
+- `date` : date d'observation de la mesure.
+- `y` : production électrique du barrage.
+- `x` : hauteur du cours sur lequel est implanté le barrage, mesurée par une station placée en amont du barrage.
+
+```{r fig.width=8, fig.height=5, fig.align='center'}
+# Import des données
+dt <- readRDS("./data_to_use.RDS")
+
+# Visualisation
+gy <- dygraph(data = dt[, .(date, y)],main = "Production électrique",
+              xlab = "date", ylab = "y", group = "rowData") %>% 
+  dyOptions(colors = "blue")
+gx <- dygraph(data = dt[, .(date, x)],main = "Hauteur du cours d'eau",
+              xlab = "date", ylab = "x", group = "rowData")%>% 
+  dyOptions(colors = "green")
+
+manipulateWidget::combineWidgets(list = list(gy, gx), nrow = 2)
+```
+
+
+**Remaque :**
+
+- Les chutes de la production vers `0`. On ne sait pas exactement pourquoi.
+    * Barrage en non actif ?
+    * Est-ce qu'on peut les modéliser ?
+- Les piques de la hauteur du cours d'eau sont observés pendant l'hiver.
+
+# Modélisation
+ 
+*Objectif :* améliorer la méthode initiale.
+
+*Questions :*
+
+- comment faire un découpage train/test lorsque les données sont temporelles ?
+- comment faire une validation croisée sur des séries temporelles ?
+
+*Choix du coupage train/test :*
+```{r}
+dt[, range(date)]
+```
+
+- train sur 2021 - 2022 ;
+- test sur 2023.
+
+*Horizon de prévision :* on se concentre sur l'horizon : **J+1**.
+
+*Mesure d'erreur de prévision : *
+```{r}
+get_rmse <- function(y_true, y_prev){
+  sqrt(mean( (y_true - y_prev) ** 2 ))
+}
+```
+
+
+## Méthode à améliorer
+
+La méthode initialement implémentée consiste à faire la moyenne des 4 derniers jours.
+
+```{r}
+# Crée des variables lag
+lag_names <- paste0("y_lag_", 1:4)
+dt_prev <- copy(dt)
+
+dt_prev[, c(lag_names) := shift(x = y, n = 1:4, type = "lag")]
+dt_prev <- na.omit(dt_prev)
+
+# On calcule les prévisions
+dt_prev[, prev := rowMeans(.SD), .SDcols = lag_names]
+
+# Prévision
+dt_init_prev <- dt_prev[year(date) <= 2022, prev := NA]
+```
+
+```{r}
+rmse_init <- get_rmse(y_true = dt_init_prev[ !is.na(prev), y],
+                      y_prev = dt_init_prev[ !is.na(prev), prev])
+rmse_init
+```
+
+```{r fig.width=8, fig.height=3, fig.align='center'}
+dygraphs::dygraph(data = dt_init_prev[, .(date, y, prev)], main = "prev vs true") %>% 
+  dygraphs::dySeries(name = "prev", color = "red")
+```
+
+- Analysez le graphique ci-dessus.
+
+## Améliorations
+
+### Ajout de covariables
+
+Les covariables peuvent être des :
+ 
+- retards de `y` ;
+- retards de `x` ;
+- agrégats de retards `y` et/ou de `x`.
+
+```{r}
+## Ajout de lag de x et de y
+dt_model <- copy(dt)
+dt_model[, c(paste0("y_lag_", 1:14)) := shift(x = y, n = 1:14, type = "lag")]
+dt_model[, c(paste0("x_lag_", 1:14)) := shift(x = x, n = 1:14, type = "lag")]
+dt_model <- na.omit(dt_model)
+```
+
+```{r}
+dt_train <- dt_model[year(date) <= 2022]
+dt_test <- dt_model[year(date) > 2022]
+```
+
+### PLS 
+
+Régression des moindres carrés partiels (PLS). Le nombre de composantes à conserver est déterminé par validation croisée sur les données d’apprentissage. Référence : [cliquer ici](https://www.math.univ-toulouse.fr/~besse/Wikistat/pdf/st-m-app-sparse-pls.pdf) ;
+
+- PLS que sur les retards de la production `y` ;
+
+```{r}
+ylag <- paste0("y_lag_", 1:14)
+
+## Estimation du modèle
+pls_prod <- pls::plsr(formula = y ~ .,
+                      data = dt_train[, .SD, .SDcols = c("y", ylag)],
+                      validation = "CV")
+## Take optimal ncomp
+rmsepcv.pls <- pls::MSEP(pls_prod, estimate = 'CV')
+ncp.optim <- which.min(rmsepcv.pls$val["CV", , ]) - 1
+ncp.optim <- ifelse(ncp.optim == 0, 1, ncp.optim)
+
+# prevision
+prev_pls <- predict(object = pls_prod, newdata = dt_test, ncomp = ncp.optim)
+
+## On borne les prévisions si elles sont inférieure à 0
+prev_pls <- ifelse(prev_pls[, 1, 1] < 0, 0, prev_pls[, 1, 1])
+prev_pls <- unname(prev_pls)
+```
+
+```{r}
+rmse_pls <- get_rmse(y_true = dt_test[, y], y_prev = prev_pls)
+rmse_pls
+```
+
+```{r fig.width=8, fig.height=3, fig.align='center'}
+dt_prev_pls <- rbind(
+  copy(dt_test)[, .(date, y)][, prev_pls := prev_pls],
+  copy(dt_train)[, .(date, y)][, prev_pls := NA]
+)
+
+dygraphs::dygraph(data = dt_prev_pls, main = "PLS - prev vs true") %>% 
+  dygraphs::dySeries(name = "prev_pls", color = "red")
+```
+
+
+*TO DO : *
+ 
+- Comparez ce rmse à celui de la prévision initiale ;
+- Ajoutez les covariables en `x_` dans le modèle. Est-ce qu'il y a une amélioration ? Pourquoi ?
+- Créez d'autres agrégats de lags et ajoutez les au modèle. Est-ce qu'il y a une amélioration ?
+
+### LS
+ 
+- Implémenter une régression linéaire. Comparez-là à votre meilleur modèle PLS ?
+- Référence : [cliquez ici.](https://bookdown.org/evraloui/lbira2110/modeles-lineaires.html)
+
+### ARIMA
+ 
+- Implémenter un modèle type ARIMA. Comparez-le aux modèles PLS et LS.
+- Référence : 
+    * [Pour formater les données ;](https://essicolo.github.io/ecologie-mathematique-R/chapitre-temps.html#m%C3%A9thode-ses)
+    * [Pour le modèle.](https://essicolo.github.io/ecologie-mathematique-R/chapitre-temps.html#la-m%C3%A9thode-arima)
+    
+### Modèle ML
+ 
+- Implémenter un modèle de Machine Learning de votre choix. Comparez-le aux modèles PLS, LS et ARIMA.
+- Référence : [voici une indication.](https://topepo.github.io/caret/).
+
+### Lien entre `y` et `x`
+ 
+- Est-ce que `x` apporte une information sur la prévision de `y` ?
+
+ 
+
+
+
+
+
+
+
+
+
