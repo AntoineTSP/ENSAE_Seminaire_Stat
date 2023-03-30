@@ -42,7 +42,7 @@ library(pls)
 require(zoo) #format de serie temporelle pratique et facile d'utilisation (mais plus volumineux)
 require(tseries) #diverses fonctions sur les series temporelles
 library(forecast)
-libra
+library(ggplot2)
 ```
 
 
@@ -228,10 +228,10 @@ dygraphs::dygraph(data = dt_prev_pls, main = "PLS - prev vs true") %>%
 ```{r}
 # Import des données
 dt <- readRDS("./data.RDS")
+dt <- dt[seq(dim(dt)[1],1),]
 #On lisse le modèle : si y=0 on prend la valeur précédente
 for (i in (1:dim(dt)[1])) {
   if (dt[i,2] == 0) {
-    print("Nul")
     dt[i,2] <- dt [i-1,2]
   }
   
@@ -241,10 +241,8 @@ dt_test <- dt[year(date) > 2022]
 dt_train
 ```
 ```{r}
-#Tendance linéaire
-dates <- as.yearmon(seq(from=1986+2/12, to=2007+3/12, by=1/12)) #
-spread <- zoo(data$spread, order.by=dates)
-summary(lm(dt_train))
+#Statistique descriptive de notre échantillon de train
+summary(dt_train)
 ```
 
 ```{r}
@@ -256,20 +254,58 @@ plot(xm)
 
 ```
 ```{r}
+#Une première approche avec une fonction qui exhibe de manière "black-box" le modèle ARIMA
 fit <- auto.arima(xm)
-plot(forecast(fit,h=4))
-dygraphs::dygraph(data = xm.source_vrai, main = "PLS - prev vs true") %>% 
- dygraphs::dySeries(name = forecast(fit,h=4), color = "red")
+
+dt_arima <- copy(dt)
+for (i in (1:dim(dt_arima)[1])) {
+  dt_arima[i,2] <- NaN
+  
+}
+for (i in (1:length(as.numeric(forecast(fit,h=20)$mean)))) {
+  dt_arima[518 +i,2] <- as.numeric(forecast(fit,h=20)$mean)[[i]]
+  
+}
+names(dt_arima)[names(dt_arima) == 'y'] <- 'y_arima'
 ```
 
 
 ```{r}
+Graph <- cbind(dt[dt$date >= "2022-12-15" & dt$date <= "2023-02-01", ][,-3], dt_arima[dt_arima$date >= "2022-12-15" & dt_arima$date <= "2023-02-01", ][,-3])
+dygraph(Graph, main = "Prévision VS Labels modèle Black-Box")%>%
+  dySeries("y", label = "Label") %>%
+  dySeries("y_arima", label = "Prev") 
+```
+
+
+
+```{r}
+plot(forecast(fit,h=20))
+```
+
+```{r}
+#Le modèle ainsi trouvé : c'est plus que critiquable !
+fit
+```
+
+
+
+```{r}
+#Autocorrélation de notre série:
 acf(xm, lag.max = 600) #
 axis(side=1,at=seq(0,600,50)) #
 ```
+```{r}
+#Autocorrélation partielle de notre série
+pacf(xm, lag.max = 600) #
+axis(side=1,at=seq(0,600,50))
+```
+
 
 ```{r}
-desaison <- xm-lag(xm,-30) #
+#On essaie de soustraire l'effet mensuel
+LAG=30
+desaison <- xm-lag(xm,-LAG) #
 par(mfrow=c(1,2)) #
 plot(desaison)
 acf(desaison, lag.max = 600)
@@ -279,6 +315,43 @@ par(mfrow=c(1,2)) #
 plot(desaison)
 pacf(desaison, lag.max = 600)
 ```
+```{r}
+#Modèle "Black-Box" sur cette série sans effet mensuel :
+#Une première approche avec une fonction qui exhibe de manière "black-box" le modèle ARIMA
+fit <- auto.arima(desaison)
+xm.source_vrai <- zoo(dt[[2]])
+desaison_vrai <- xm.source_vrai-lag(xm.source_vrai,-LAG) #
+
+dt_arima <- copy(dt)
+for (i in (1:dim(dt_arima)[1])) {
+  dt_arima[i,2] <- NaN
+  
+}
+for (i in (1:length(as.numeric(forecast(fit,h=20)$mean)))) {
+  dt_arima[518 +i,2] <- as.numeric(forecast(fit,h=20)$mean)[[i]]
+  
+}
+names(dt_arima)[names(dt_arima) == 'y'] <- 'y_arima'
+
+dt_lag <-copy(dt)
+for (i in (1:dim(dt_lag)[1])) {
+  dt_lag[i,2] <- desaison_vrai[i]
+  
+}
+```
+
+```{r}
+Graph <- cbind(dt_lag[dt_lag$date >= "2022-12-15" & dt_lag$date <= "2023-02-01", ][,-3], dt_arima[dt_arima$date >= "2022-12-15" & dt_arima$date <= "2023-02-01", ][,-3])
+dygraph(Graph, main = paste("Prévision VS Labels modèle Black-Box avec LAG= ",toString(LAG)))%>%
+  dySeries("y", label = "Label") %>%
+  dySeries("y_arima", label = "Prev") 
+```
+
+```{r}
+fit
+```
+
+
 ```{r}
 #### Q4 ####
 #Hypothèse nulle : la série a une racine sur le cercle unité / H1: Stationarité
