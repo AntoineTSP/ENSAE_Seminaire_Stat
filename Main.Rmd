@@ -1,6 +1,6 @@
 ---
 title: "[ENSAE, 2A] Séminaire statistique 2023"
-author: "Hassan Maissoro"
+author: "Hassan Maissoro/ Léa Joly / Antoine Klein"
 output: 
   html_document:
     toc : true
@@ -23,6 +23,12 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 ```{r}
 install.packages("manipulateWidget")
+install.packages("tseries")
+install.packages("zoo")
+install.packages("dygraphs")
+install.packages('pls')
+install.packages("forecast", dependencies = TRUE)
+install.packages("ggplot2")
 ```
 
 
@@ -33,6 +39,10 @@ library(magrittr)
 library(dygraphs)
 library(manipulateWidget)
 library(pls)
+require(zoo) #format de serie temporelle pratique et facile d'utilisation (mais plus volumineux)
+require(tseries) #diverses fonctions sur les series temporelles
+library(forecast)
+libra
 ```
 
 
@@ -47,8 +57,12 @@ On se concentre sur un seul barrage hydroélectrique.
 - `x` : hauteur du cours sur lequel est implanté le barrage, mesurée par une station placée en amont du barrage.
 
 ```{r fig.width=8, fig.height=5, fig.align='center'}
+#On change le path
+path <- "~/work/ENSAE_Seminaire_Stat"
+setwd(path) #definit l'espace de travail (working directory ou "wd")
+getwd() #affiche le wd
 # Import des données
-dt <- readRDS("./data_to_use.RDS")
+dt <- readRDS("./data.RDS")
 
 # Visualisation
 gy <- dygraph(data = dt[, .(date, y)],main = "Production électrique",
@@ -172,7 +186,7 @@ ncp.optim <- ifelse(ncp.optim == 0, 1, ncp.optim)
 # prevision
 prev_pls <- predict(object = pls_prod, newdata = dt_test, ncomp = ncp.optim)
 
-## On borne les prévisions si elles sont inférieure à 0
+## On borne les prévisions si elles sont inférieures à 0
 prev_pls <- ifelse(prev_pls[, 1, 1] < 0, 0, prev_pls[, 1, 1])
 prev_pls <- unname(prev_pls)
 ```
@@ -210,6 +224,78 @@ dygraphs::dygraph(data = dt_prev_pls, main = "PLS - prev vs true") %>%
 - Référence : 
     * [Pour formater les données ;](https://essicolo.github.io/ecologie-mathematique-R/chapitre-temps.html#m%C3%A9thode-ses)
     * [Pour le modèle.](https://essicolo.github.io/ecologie-mathematique-R/chapitre-temps.html#la-m%C3%A9thode-arima)
+
+```{r}
+# Import des données
+dt <- readRDS("./data.RDS")
+#On lisse le modèle : si y=0 on prend la valeur précédente
+for (i in (1:dim(dt)[1])) {
+  if (dt[i,2] == 0) {
+    print("Nul")
+    dt[i,2] <- dt [i-1,2]
+  }
+  
+}
+dt_train <- dt[year(date) <= 2022]
+dt_test <- dt[year(date) > 2022]
+dt_train
+```
+```{r}
+#Tendance linéaire
+dates <- as.yearmon(seq(from=1986+2/12, to=2007+3/12, by=1/12)) #
+spread <- zoo(data$spread, order.by=dates)
+summary(lm(dt_train))
+```
+
+```{r}
+xm.source <- zoo(dt_train[[2]]) #convertit le premier element de data en serie temporelle de type "zoo"
+xm.source_vrai <- zoo(dt[[2]])
+T <- length(xm.source)
+xm <- xm.source[1:(T-4)] #supprime les 4 dernieres valeurs
+plot(xm)
+
+```
+```{r}
+fit <- auto.arima(xm)
+plot(forecast(fit,h=4))
+dygraphs::dygraph(data = xm.source_vrai, main = "PLS - prev vs true") %>% 
+ dygraphs::dySeries(name = forecast(fit,h=4), color = "red")
+```
+
+
+```{r}
+acf(xm, lag.max = 600) #
+axis(side=1,at=seq(0,600,50)) #
+```
+
+```{r}
+desaison <- xm-lag(xm,-30) #
+par(mfrow=c(1,2)) #
+plot(desaison)
+acf(desaison, lag.max = 600)
+```
+```{r}
+par(mfrow=c(1,2)) #
+plot(desaison)
+pacf(desaison, lag.max = 600)
+```
+```{r}
+#### Q4 ####
+#Hypothèse nulle : la série a une racine sur le cercle unité / H1: Stationarité
+pp.test(xm) #
+#On veut une p-valeur inférieure à 0.05 : ce n'est pas le cas avec la série initiale
+```
+
+```{r}
+desaison <- xm-lag(xm,-30) #
+pp.test(desaison)
+```
+```{r}
+par(mfrow=c(1,2)) #
+acf(desaison,lag.max = 600); pacf(desaison, lag.max = 600)
+axis(side=1,at=seq(0,600,50))
+```
+
     
 ### Modèle ML
  
