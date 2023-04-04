@@ -1,25 +1,38 @@
 ---
-title: "[ENSAE, 2A] Séminaire statistique 2023"
+title: '[ENSAE, 2A] Séminaire statistique 2023'
 author: "Hassan Maissoro/ Léa Joly / Antoine Klein"
-output: 
+date: "2023-03-17"
+output:
   html_document:
-    toc : true
-    toc_depth : 4
-    number_sections: true
+    toc: yes
+    toc_depth: 4
+    number_sections: yes
     theme: readable
     highlight: tango
     toc_float:
-      collapsed: false
-      smooth_scroll: false
+      collapsed: no
+      smooth_scroll: no
     css: style.css
     fig_width: 8
     fig_height: 3
-date: "2023-03-17"
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 ```
+
+<p id="p_">
+
+<b> Sujet : Modélisation de la production d'électricité d'un barrage </b>
+
+</p>
+
+Objectif : Prédire la production d'élctricité pour le lendemain compte tenu de la production passée
+
+# On installe les packages
 
 ```{r}
 install.packages("manipulateWidget")
@@ -27,20 +40,20 @@ install.packages("tseries")
 install.packages("zoo")
 install.packages("dygraphs")
 install.packages('pls')
-install.packages("forecast", dependencies = TRUE)
-install.packages("ggplot2")
-install.packages("fUnitRoots")#tests de racine unitaire plus modulables
+install.packages("forecast", dependencies = TRUE)#Pour établir des prédictions
+install.packages("ggplot2") #Pour les plots
+install.packages("fUnitRoots")#Tests de racine unitaire
 ```
 
+# On importe les packages
 
-<p id = "p_"><b> Sujet : modélisation de la production d'électricité d'un barrage </b></p>
 ```{r}
 library(data.table)
 library(magrittr)
 library(dygraphs)
 library(manipulateWidget)
 library(pls)
-require(zoo) #format de serie temporelle pratique et facile d'utilisation (mais plus volumineux)
+require(zoo) #format de serie temporelle pratique et facile d'utilisation 
 require(tseries) #diverses fonctions sur les series temporelles
 library(forecast)
 library(ggplot2)
@@ -48,16 +61,13 @@ library(fUnitRoots)
 
 ```
 
-
-
 # Données
 
-Les données utilisées dans le cadre de ce séminaire ont été simulées.
-On se concentre sur un seul barrage hydroélectrique.
- 
-- `date` : date d'observation de la mesure.
-- `y` : production électrique du barrage.
-- `x` : hauteur du cours sur lequel est implanté le barrage, mesurée par une station placée en amont du barrage.
+Les données utilisées dans le cadre de ce séminaire ont été simulées. On se concentre sur un seul barrage hydroélectrique.
+
+-   `date` : date d'observation de la mesure.
+-   `y` : production électrique du barrage.
+-   `x` : hauteur du cours sur lequel est implanté le barrage, mesurée par une station placée en amont du barrage.
 
 ```{r fig.width=8, fig.height=5, fig.align='center'}
 #On change le path
@@ -78,40 +88,40 @@ gx <- dygraph(data = dt[, .(date, x)],main = "Hauteur du cours d'eau",
 manipulateWidget::combineWidgets(list = list(gy, gx), nrow = 2)
 ```
 
+**Remarque :**
 
-**Remaque :**
-
-- Les chutes de la production vers `0`. On ne sait pas exactement pourquoi.
-    * Barrage en non actif ?
-    * Est-ce qu'on peut les modéliser ?
-- Les piques de la hauteur du cours d'eau sont observés pendant l'hiver.
+-   Les chutes de la production vers `0`. On ne sait pas exactement pourquoi.
+    -   Barrage en non actif ?
+    -   Est-ce qu'on peut les modéliser ?
+-   Les piques de la hauteur du cours d'eau sont observés pendant l'hiver.
 
 # Modélisation
- 
+
 *Objectif :* améliorer la méthode initiale.
 
 *Questions :*
 
-- comment faire un découpage train/test lorsque les données sont temporelles ?
-- comment faire une validation croisée sur des séries temporelles ?
+-   comment faire un découpage train/test lorsque les données sont temporelles ?
+-   comment faire une validation croisée sur des séries temporelles ?
 
 *Choix du coupage train/test :*
+
 ```{r}
 dt[, range(date)]
 ```
 
-- train sur 2021 - 2022 ;
-- test sur 2023.
+-   train sur 2021 - 2022 ;
+-   test sur 2023.
 
 *Horizon de prévision :* on se concentre sur l'horizon : **J+1**.
 
-*Mesure d'erreur de prévision : *
+*Mesure d'erreur de prévision :*
+
 ```{r}
 get_rmse <- function(y_true, y_prev){
   sqrt(mean( (y_true - y_prev) ** 2 ))
 }
 ```
-
 
 ## Méthode à améliorer
 
@@ -147,17 +157,17 @@ dygraphs::dygraph(data = dt_init_prev[, .(date, y, prev)], main = "prev vs true"
   dygraphs::dySeries(name = "prev", color = "red")
 ```
 
-- Analysez le graphique ci-dessus.
+-   Analysez le graphique ci-dessus.
 
 ## Améliorations
 
 ### Ajout de covariables
 
 Les covariables peuvent être des :
- 
-- retards de `y` ;
-- retards de `x` ;
-- agrégats de retards `y` et/ou de `x`.
+
+-   retards de `y` ;
+-   retards de `x` ;
+-   agrégats de retards `y` et/ou de `x`.
 
 ```{r}
 ## Ajout de lag de x et de y
@@ -172,11 +182,11 @@ dt_train <- dt_model[year(date) <= 2022]
 dt_test <- dt_model[year(date) > 2022]
 ```
 
-### PLS 
+### PLS
 
-Régression des moindres carrés partiels (PLS). Le nombre de composantes à conserver est déterminé par validation croisée sur les données d’apprentissage. Référence : [cliquer ici](https://www.math.univ-toulouse.fr/~besse/Wikistat/pdf/st-m-app-sparse-pls.pdf) ;
+Régression des moindres carrés partiels (PLS). Le nombre de composantes à conserver est déterminé par validation croisée sur les données d'apprentissage. Référence : [cliquer ici](https://www.math.univ-toulouse.fr/~besse/Wikistat/pdf/st-m-app-sparse-pls.pdf) ;
 
-- PLS que sur les retards de la production `y` ;
+-   PLS que sur les retards de la production `y` ;
 
 ```{r}
 ylag <- paste0("y_lag_", 1:14)
@@ -213,24 +223,25 @@ dygraphs::dygraph(data = dt_prev_pls, main = "PLS - prev vs true") %>%
   dygraphs::dySeries(name = "prev_pls", color = "red")
 ```
 
+*TO DO :*
 
-*TO DO : *
- 
-- Comparez ce rmse à celui de la prévision initiale ;
-- Ajoutez les covariables en `x_` dans le modèle. Est-ce qu'il y a une amélioration ? Pourquoi ?
-- Créez d'autres agrégats de lags et ajoutez les au modèle. Est-ce qu'il y a une amélioration ?
+-   Comparez ce rmse à celui de la prévision initiale ;
+-   Ajoutez les covariables en `x_` dans le modèle. Est-ce qu'il y a une amélioration ? Pourquoi ?
+-   Créez d'autres agrégats de lags et ajoutez les au modèle. Est-ce qu'il y a une amélioration ?
 
 ### LS
- 
-- Implémenter une régression linéaire. Comparez-là à votre meilleur modèle PLS ?
-- Référence : [cliquez ici.](https://bookdown.org/evraloui/lbira2110/modeles-lineaires.html)
+
+-   Implémenter une régression linéaire. Comparez-là à votre meilleur modèle PLS ?
+-   Référence : [cliquez ici.](https://bookdown.org/evraloui/lbira2110/modeles-lineaires.html)
 
 ### ARIMA
- 
-- Implémenter un modèle type ARIMA. Comparez-le aux modèles PLS et LS.
-- Référence : 
-    * [Pour formater les données ;](https://essicolo.github.io/ecologie-mathematique-R/chapitre-temps.html#m%C3%A9thode-ses)
-    * [Pour le modèle.](https://essicolo.github.io/ecologie-mathematique-R/chapitre-temps.html#la-m%C3%A9thode-arima)
+
+-   Implémenter un modèle type ARIMA. Comparez-le aux modèles PLS et LS.
+-   Référence :
+    -   [Pour formater les données ;](https://essicolo.github.io/ecologie-mathematique-R/chapitre-temps.html#m%C3%A9thode-ses)
+    -   [Pour le modèle.](https://essicolo.github.io/ecologie-mathematique-R/chapitre-temps.html#la-m%C3%A9thode-arima)
+
+#### Preprocessing et Data Visualisation
 
 ```{r}
 # Import des données
@@ -242,6 +253,7 @@ for (i in (1:dim(dt)[1])) {
     dt[i,2] <- (dt [i-1,2] + dt[i+1,2])/2
   }
 }
+#On divise notre dataset en TRAIN/TEST
 dt_train <- dt[year(date) <= 2022]
 dt_test <- dt[year(date) > 2022]
 dt_train
@@ -251,14 +263,6 @@ dt_train
 #Statistique descriptive de notre échantillon de train
 summary(dt_train)
 ```
-```{r}
-adf <- adfTest(xm, lag=0, type="nc") #
-adf
-#Souhait: <0.05 H0 : rho =1
-#Il y a une racine unitaire
-```
-
-
 
 ```{r}
 #Les 7 bonnes prédictions
@@ -267,32 +271,35 @@ xm.source_test_7
 summary(xm.source_test_7)
 plot(xm.source_test_7)
 ```
-```{r}
-xm.source_test_7_lag <- zoo(dt[[2]])[523:530]
-xm.source_test_7_lag
-```
 
 ```{r}
 #Les 7 bonnes prédictions avec lag
 LAG=30
 xm.source_test_7_lag <- zoo(dt[[2]])
-desaison_test_7_lag <- xm.source_test_7_lag-lag(xm.source_test_7_lag,-LAG) #
-desaison_test_7_lag <- desaison_test_7_lag 
+desaison_test_7_lag <- xm.source_test_7_lag-lag(xm.source_test_7_lag,-LAG)
 desaison_test_7_lag <- desaison_test_7_lag[523:530]
 desaison_test_7_lag
 summary(desaison_test_7_lag)
 plot(desaison_test_7_lag)
 ```
 
-
 ```{r}
-xm.source <- zoo(dt_train[[2]]) #convertit le premier element de data en serie temporelle de type "zoo"
+xm.source <- zoo(dt_train[[2]])
 xm.source_vrai <- zoo(dt[[2]])
 xm <- xm.source
 plot(xm)
 
 ```
 
+```{r}
+adf <- adfTest(xm, lag=0, type="nc") #
+adf
+#Souhait: <0.05 H0 : rho =1
+#Il y a une racine unitaire
+```
+
+
+#### Une première approche avec un auto_arima sur la série brute
 
 ```{r}
 #Une première approche avec une fonction qui exhibe de manière "black-box" le modèle ARIMA
@@ -310,7 +317,6 @@ for (i in (1:length(as.numeric(forecast(fit,h=20)$mean)))) {
 names(dt_arima)[names(dt_arima) == 'y'] <- 'y_arima'
 ```
 
-
 ```{r}
 Graph <- cbind(dt[dt$date >= "2022-12-15" & dt$date <= "2023-02-01", ][,-3], dt_arima[dt_arima$date >= "2022-12-15" & dt_arima$date <= "2023-02-01", ][,-3])
 dygraph(Graph, main = "Prévision VS Labels modèle Black-Box")%>%
@@ -318,23 +324,20 @@ dygraph(Graph, main = "Prévision VS Labels modèle Black-Box")%>%
   dySeries("y_arima", label = "Prev") 
 ```
 
-
-
 ```{r}
-plot(forecast(fit,h=20))
+plot(forecast(fit,h=20),xlim = c(450, 550))
 ```
 
 ```{r}
 #Le modèle ainsi trouvé : c'est plus que critiquable !
 fit
 ```
+
 ```{r}
 rmse_init <- get_rmse(y_true = xm.source_test_7,
                       y_prev = as.numeric(forecast(fit,h=7)$mean))
 rmse_init
 ```
-
-
 
 ```{r}
 #Autocorrélation de notre série:
@@ -356,6 +359,8 @@ axis(side=1,at=seq(0,20,5))
 #On prend p=4
 ```
 
+#### Une seconde approche avec un auto_arima sur la série laggée de 30 jours
+
 
 ```{r}
 #On essaie de soustraire l'effet mensuel
@@ -364,6 +369,13 @@ desaison <- xm-lag(xm,-LAG) #
 desaison <- desaison - mean(desaison)
 summary(desaison)
 plot(desaison)
+```
+
+```{r}
+adf <- adfTest(desaison, lag=0, type="nc") #
+adf
+#Souhait: <0.05 H0 : rho =1
+#Il n'y a plus une racine unitaire
 ```
 
 ```{r}
@@ -376,7 +388,6 @@ axis(side=1,at=seq(0,23,5)) #
 #On prend q=20
 ```
 
-
 ```{r}
 #Autocorrélation partielle de notre série
 par(mfrow=c(1,2)) #
@@ -386,8 +397,6 @@ pacf(desaison, lag.max = 10) #
 axis(side=1,at=seq(0,10,1))
 #On prend p=5
 ```
-
-
 
 ```{r}
 #Modèle "Black-Box" sur cette série sans effet mensuel :
@@ -424,12 +433,14 @@ dygraph(Graph, main = paste("Prévision VS Labels modèle Black-Box avec LAG= ",
 ```{r}
 fit
 ```
+
 ```{r}
 rmse_init <- get_rmse(y_true = desaison_test_7_lag,
                       y_prev = as.numeric(forecast(fit,h=7)$mean))
 rmse_init
 ```
 
+#### Test de Stationnarité de la série brute/laggée
 
 
 ```{r}
@@ -442,15 +453,18 @@ pp.test(xm) #
 ```{r}
 #Hypothèse nulle : la série a une racine sur le cercle unité / H1: Stationarité
 pp.test(desaison)
-#On veut une p-valeur inférieure à 0.05 : c'est le cas avec la série initiale
+#On veut une p-valeur inférieure à 0.05 : c'est le cas avec la série laggée
 ```
 
+#### Essais de modèle ARIMA à la main 
 
 ```{r}
 #On teste un modèle arima :
 arima5_0_20 <- arima(desaison,c(5,0,20)) #
 arima5_0_20
 ```
+
+#### Test d'hypothèses pour sélectionner les meilleurs modèles
 
 ```{r}
 Box.test(arima5_0_20$residuals, lag=26, type="Ljung-Box", fitdf=5) #
@@ -481,7 +495,6 @@ signif <- function(estim){ #fonction de test des significations individuelles de
 signif(arima5_0_20) #
 ```
 
-
 ```{r}
 arimafit <- function(estim){
   adjust <- round(signif(estim),3)
@@ -495,7 +508,6 @@ arimafit <- function(estim){
 }
 estim <- arima(desaison,c(5,0,20)); arimafit(estim)
 ```
-
 
 ```{r}
 ## fonction pour estimer un arima et en verifier l'ajustement et la validite
@@ -532,6 +544,7 @@ selec
 #ARMA(5,19)
 #ARMA(5,20)
 ```
+
 ```{r}
 pqs <- apply(selec,1,function(row) list("p"=as.numeric(row[1]),"q"=as.numeric(row[2]))) #cree une liste des ordres p et q des modeles candidats
 names(pqs) <- paste0("arma(",selec[,1],",",selec[,2],")") #renomme les elements de la liste
@@ -540,13 +553,13 @@ vapply(models, FUN.VALUE=numeric(2), function(m) c("AIC"=AIC(m),"BIC"=BIC(m))) #
 ### L'ARMA(5,19) minimise les criteres d'information.
 ```
 
-
 ```{r}
 #ARMA(3,9) pour la prochaine semaine
 rmse_init <- get_rmse(y_true = desaison_test_7_lag,
                       y_prev = as.numeric(forecast(arima(desaison, c(3,0,9)),h=7)$mean))
 rmse_init
 ```
+
 ```{r}
 #ARMA(5,19) pour la prochaine semaine
 rmse_init <- get_rmse(y_true = desaison_test_7_lag,
@@ -561,13 +574,8 @@ rmse_init <- get_rmse(y_true = desaison_test_7_lag,
 rmse_init
 ```
 
-
-
-
-
 ```{r}
 #Modèle "A la main" sur cette série sans effet mensuel :
-#Une première approche avec une fonction qui exhibe de manière "black-box" le modèle ARIMA
 fit <- arima(desaison, c(5,0,19))
 xm.source_vrai <- zoo(dt[[2]])
 desaison_vrai <- xm.source_vrai-lag(xm.source_vrai,-LAG) #
@@ -597,6 +605,8 @@ dygraph(Graph, main = paste("Prévision VS Labels modèle Black-Box avec LAG= ",
   dySeries("y_arima", label = "Prev") 
 ```
 
+### Prédiction à horizon T+1 :
+
 ```{r}
 #Sommes des MSE avec une prévision à t+1
 #Les bonnes prédictions avec lag
@@ -612,8 +622,8 @@ plot(desaison_test_all_lag)
 ```{r}
 Liste_prev_lag <- c()
 LAG=30
-L <-length(xm.source_all_lag)
 xm.source_all_lag <- zoo(dt[[2]])
+L <-length(xm.source_all_lag)
 desaison_all_lag <- xm.source_all_lag-lag(xm.source_all_lag,-LAG) #
 Zoo=zoo(desaison_all_lag)
 for (i in (523:L)) {
@@ -622,7 +632,6 @@ for (i in (523:L)) {
 }
 Liste_prev_lag
 ```
-
 
 ```{r}
 dt_arima <- copy(dt)
@@ -672,7 +681,6 @@ xm.source_all_lag <- zoo(dt_init_prev[[8]])
 desaison_all_lag <- xm.source_all_lag-lag(xm.source_all_lag,-LAG) #
 ```
 
-
 ```{r}
 Graph <- cbind(dt_lag[dt_lag$date >= "2022-12-15" & dt_lag$date <= "2023-02-01", ][,-3], dt_arima[dt_arima$date >= "2022-12-15" & dt_arima$date <= "2023-02-01", ][,-3],dt_init_prev[dt_init_prev$date >= "2022-12-15" & dt_init_prev$date <= "2023-02-01", ][,8])
 dygraph(Graph, main = paste("Prévision VS Labels modèle Black-Box avec LAG= ",toString(LAG)))%>%
@@ -681,20 +689,20 @@ dygraph(Graph, main = paste("Prévision VS Labels modèle Black-Box avec LAG= ",
   dySeries("prev", label = "Prev_EDF")
 
 ```
+
 ```{r}
 #ARMA(3,9) avec t+1
 rmse_init <- get_rmse(y_true = desaison_test_all_lag[ !is.na(desaison_test_all_lag), desaison_test_all_lag],
                       y_prev = dt_init_prev[ !is.na(prev), prev])
 rmse_init
 ```
+
 ```{r}
 #ARMA(3,9) avec t+1
 rmse_init <- get_rmse(y_true = desaison_test_all_lag[ !is.na(desaison_test_all_lag), desaison_test_all_lag],
                       y_prev = Liste_prev_lag)
 rmse_init
 ```
-
-
 
 ```{r}
 #Vraies valeurs
@@ -711,29 +719,11 @@ Liste_prev_lag
 dt_init_prev[ !is.na(prev), prev]
 ```
 
-
-
-
-
-
-
-    
 ### Modèle ML
- 
-- Implémenter un modèle de Machine Learning de votre choix. Comparez-le aux modèles PLS, LS et ARIMA.
-- Référence : [voici une indication.](https://topepo.github.io/caret/).
+
+-   Implémenter un modèle de Machine Learning de votre choix. Comparez-le aux modèles PLS, LS et ARIMA.
+-   Référence : [voici une indication.](https://topepo.github.io/caret/).
 
 ### Lien entre `y` et `x`
- 
-- Est-ce que `x` apporte une information sur la prévision de `y` ?
 
- 
-
-
-
-
-
-
-
-
-
+-   Est-ce que `x` apporte une information sur la prévision de `y` ?
