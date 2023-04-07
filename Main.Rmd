@@ -101,8 +101,8 @@ manipulateWidget::combineWidgets(list = list(gy, gx), nrow = 2)
 
 *Questions :*
 
--   comment faire un découpage train/test lorsque les données sont temporelles ?
--   comment faire une validation croisée sur des séries temporelles ?
+-   Comment faire un découpage train/test lorsque les données sont temporelles ?
+-   Comment faire une validation croisée sur des séries temporelles ?
 
 *Choix du coupage train/test :*
 
@@ -151,6 +151,7 @@ rmse_init <- get_rmse(y_true = dt_init_prev[ !is.na(prev), y],
                       y_prev = dt_init_prev[ !is.na(prev), prev])
 rmse_init
 ```
+
 
 ```{r fig.width=8, fig.height=3, fig.align='center'}
 dygraphs::dygraph(data = dt_init_prev[, .(date, y, prev)], main = "prev vs true") %>% 
@@ -681,8 +682,10 @@ xm.source_all_lag <- zoo(dt_init_prev[[8]])
 desaison_all_lag <- xm.source_all_lag-lag(xm.source_all_lag,-LAG) #
 ```
 
+
+
 ```{r}
-Graph <- cbind(dt_lag[dt_lag$date >= "2022-12-15" & dt_lag$date <= "2023-02-01", ][,-3], dt_arima[dt_arima$date >= "2022-12-15" & dt_arima$date <= "2023-02-01", ][,-3],dt_init_prev[dt_init_prev$date >= "2022-12-15" & dt_init_prev$date <= "2023-02-01", ][,8])
+Graph <- cbind(dt_lag[dt_lag$date >= "2022-12-15" & dt_lag$date <= "2023-02-12", ][,-3], dt_arima[dt_arima$date >= "2022-12-15" & dt_arima$date <= "2023-02-12", ][,-3],dt_init_prev[dt_init_prev$date >= "2022-12-15" & dt_init_prev$date <= "2023-02-12", ][,8])
 dygraph(Graph, main = paste("Prévision VS Labels modèle Black-Box avec LAG= ",toString(LAG)))%>%
   dySeries("y", label = "Label") %>%
   dySeries("y_arima", label = "Prev") %>%
@@ -691,7 +694,7 @@ dygraph(Graph, main = paste("Prévision VS Labels modèle Black-Box avec LAG= ",
 ```
 
 ```{r}
-#ARMA(3,9) avec t+1
+#EDF avec t+1
 rmse_init <- get_rmse(y_true = desaison_test_all_lag[ !is.na(desaison_test_all_lag), desaison_test_all_lag],
                       y_prev = dt_init_prev[ !is.na(prev), prev])
 rmse_init
@@ -721,9 +724,97 @@ dt_init_prev[ !is.na(prev), prev]
 
 ### Modèle ML
 
--   Implémenter un modèle de Machine Learning de votre choix. Comparez-le aux modèles PLS, LS et ARIMA.
--   Référence : [voici une indication.](https://topepo.github.io/caret/).
+# Implémentation d'une Random Forest pour faire une régression
 
-### Lien entre `y` et `x`
 
--   Est-ce que `x` apporte une information sur la prévision de `y` ?
+```{r}
+#On installe le package en conséquence
+install.packages("randomForest")
+library(randomForest)
+```
+```{r}
+#On fit le modèle
+rf = randomForest(y ~ date + x, data = dt_train)
+rf
+```
+
+```{r}
+#On calcule note MSE sur notre échantillon de TRAIN
+rmse_init <- get_rmse(y_true = dt_train$y,
+                      y_prev = predict(rf, newdata = dt_train))
+rmse_init
+```
+```{r}
+#On calcuke notre MSE sur notre échantillon de TEST
+rmse_init <- get_rmse(y_true = dt_test$y,
+                      y_prev = predict(rf, newdata = dt_test))
+rmse_init
+#On overfit !
+```
+```{r}
+#On établit la liste de nos prédictions
+Liste_prev_ML <- c()
+xm.source_ML <- zoo(dt[[2]])
+L <-length(xm.source_ML)
+Zoo=zoo(xm.source_ML)
+for (i in (522:L)) {
+  rf <- randomForest(y ~ date + x, data = dt[-(i:length(dt[[1]])),])
+  Liste_prev_ML<-c(Liste_prev_ML, tail(predict(rf, newdata = dt[-(i+1:length(dt_lag[[1]])),]), n=1))
+}
+Liste_prev_ML
+```
+
+
+```{r}
+#On prépare le dataframe pour le plot
+dt_ML <- copy(dt)
+for (i in (1:dim(dt_ML)[1])) {
+  dt_ML[i,2] <- NaN
+  
+}
+for (i in (522:L)) {
+  dt_ML[i,2] <- Liste_prev_ML[[i-521]]
+  
+}
+names(dt_ML)[names(dt_ML) == 'y'] <- 'y_ML'
+```
+
+```{r}
+#On plot
+Graph <- cbind(dt[dt$date >= "2022-12-15", ][,-3], dt_ML[dt_ML$date >= "2022-12-15", ][,-3])
+dygraph(Graph, main = paste("Prévision VS Labels modèle ML"))%>%
+  dySeries("y", label = "Label") %>%
+  dySeries("y_ML", label = "ML") 
+#C'est moins bien que le modèle ARIMA : c'est normal, on ne prend pas en compte l'aspect temporel de nos données !
+
+```
+```{r}
+#MSE sur 2023
+rmse_init <- get_rmse(y_true = dt[year(date) > 2022]$y,
+                      y_prev = dt_ML[year(date) > 2022]$y)
+rmse_init
+```
+
+```{r}
+#On réessaye en laggant notre jeu de données
+dt_lag <- dt_lag[-(532:length(dt_lag[[1]])),]
+```
+
+
+```{r}
+rf = randomForest(y ~ date + x, data = dt_lag[year(date) <= 2022])
+```
+
+```{r}
+rmse_init <- get_rmse(y_true = dt_lag[year(date) <= 2022]$y,
+                      y_prev = predict(rf, newdata = dt_lag[year(date) <= 2022]))
+rmse_init
+#C'est moins bien sur le TRAIN SET
+```
+
+```{r}
+rmse_init <- get_rmse(y_true = dt_lag[year(date) > 2022]$y,
+                      y_prev = predict(rf, newdata = dt_lag[year(date) > 2022]))
+rmse_init
+#C'est moins bien sur le TEST SET
+```
