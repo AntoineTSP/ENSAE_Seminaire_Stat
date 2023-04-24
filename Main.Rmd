@@ -30,7 +30,7 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 </p>
 
-Objectif : Prédire la production d'élctricité pour le lendemain compte tenu de la production passée
+Objectif : Prédire la production d'électricité pour le lendemain compte tenu de la production passée
 
 # On installe les packages
 
@@ -88,16 +88,9 @@ gx <- dygraph(data = dt[, .(date, x)],main = "Hauteur du cours d'eau",
 manipulateWidget::combineWidgets(list = list(gy, gx), nrow = 2)
 ```
 
-**Remarque :**
-
--   Les chutes de la production vers `0`. On ne sait pas exactement pourquoi.
-    -   Barrage en non actif ?
-    -   Est-ce qu'on peut les modéliser ?
--   Les piques de la hauteur du cours d'eau sont observés pendant l'hiver.
-
 # Modélisation
 
-*Objectif :* améliorer la méthode initiale.
+*Objectif :* Améliorer la méthode initiale.
 
 *Questions :*
 
@@ -157,8 +150,6 @@ rmse_init
 dygraphs::dygraph(data = dt_init_prev[, .(date, y, prev)], main = "prev vs true") %>% 
   dygraphs::dySeries(name = "prev", color = "red")
 ```
-
--   Analysez le graphique ci-dessus.
 
 ## Améliorations
 
@@ -224,16 +215,6 @@ dygraphs::dygraph(data = dt_prev_pls, main = "PLS - prev vs true") %>%
   dygraphs::dySeries(name = "prev_pls", color = "red")
 ```
 
-*TO DO :*
-
--   Comparez ce rmse à celui de la prévision initiale ;
--   Ajoutez les covariables en `x_` dans le modèle. Est-ce qu'il y a une amélioration ? Pourquoi ?
--   Créez d'autres agrégats de lags et ajoutez les au modèle. Est-ce qu'il y a une amélioration ?
-
-### LS
-
--   Implémenter une régression linéaire. Comparez-là à votre meilleur modèle PLS ?
--   Référence : [cliquez ici.](https://bookdown.org/evraloui/lbira2110/modeles-lineaires.html)
 
 ### ARIMA
 
@@ -248,7 +229,7 @@ dygraphs::dygraph(data = dt_prev_pls, main = "PLS - prev vs true") %>%
 # Import des données
 dt <- readRDS("./data.RDS")
 dt <- dt[seq(dim(dt)[1],1),]
-#On lisse le modèle : si y=0 on prend la valeur précédente
+#On lisse le modèle : si y=0 on fait la moyenne de la valeur précédente et de la valeur qui suit
 for (i in (1:dim(dt)[1])) {
   if (dt[i,2] == 0) {
     dt[i,2] <- (dt [i-1,2] + dt[i+1,2])/2
@@ -285,6 +266,7 @@ plot(desaison_test_7_lag)
 ```
 
 ```{r}
+#On met l'échantillon de train dans le format zoo et on plot:
 xm.source <- zoo(dt_train[[2]])
 xm.source_vrai <- zoo(dt[[2]])
 xm <- xm.source
@@ -293,6 +275,7 @@ plot(xm)
 ```
 
 ```{r}
+#Test de racine unitaire : Augmented Dickey-Füller
 adf <- adfTest(xm, lag=0, type="nc") #
 adf
 #Souhait: <0.05 H0 : rho =1
