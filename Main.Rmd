@@ -40,9 +40,9 @@ install.packages("tseries")
 install.packages("zoo")
 install.packages("dygraphs")
 install.packages('pls')
-install.packages("forecast", dependencies = TRUE)#Pour établir des prédictions
-install.packages("ggplot2") #Pour les plots
-install.packages("fUnitRoots")#Tests de racine unitaire
+install.packages("forecast", dependencies = TRUE)# Pour établir des prédictions
+install.packages("ggplot2") # Pour les plots
+install.packages("fUnitRoots")# Tests de racine unitaire
 ```
 
 # On importe les packages
@@ -58,7 +58,6 @@ require(tseries) #diverses fonctions sur les series temporelles
 library(forecast)
 library(ggplot2)
 library(fUnitRoots)
-
 ```
 
 # Données
@@ -174,6 +173,7 @@ dt_train <- dt_model[year(date) <= 2022]
 dt_test <- dt_model[year(date) > 2022]
 ```
 
+
 ### PLS
 
 Régression des moindres carrés partiels (PLS). Le nombre de composantes à conserver est déterminé par validation croisée sur les données d'apprentissage. Référence : [cliquer ici](https://www.math.univ-toulouse.fr/~besse/Wikistat/pdf/st-m-app-sparse-pls.pdf) ;
@@ -201,9 +201,15 @@ prev_pls <- unname(prev_pls)
 ```
 
 ```{r}
+ncp.optim
+```
+
+
+```{r}
 rmse_pls <- get_rmse(y_true = dt_test[, y], y_prev = prev_pls)
 rmse_pls
 ```
+Cette rmse est inférieure à la rmse initiale (273.5126 < 304.3409)
 
 ```{r fig.width=8, fig.height=3, fig.align='center'}
 dt_prev_pls <- rbind(
@@ -214,7 +220,114 @@ dt_prev_pls <- rbind(
 dygraphs::dygraph(data = dt_prev_pls, main = "PLS - prev vs true") %>% 
   dygraphs::dySeries(name = "prev_pls", color = "red")
 ```
+### ajout des retards en x
+```{r}
+# Ajout des covariables x
+xlag <- paste0("x_lag_", 1:14) # ajout des retards de x
+lags <- c(xlag, ylag)    # on combine les retards de x et y
 
+# Estimation du modèle
+pls_prod2 <- pls::plsr(formula = y ~ .,
+                      data = dt_train[, .SD, .SDcols = c("y", lags)],
+                      validation = "CV")
+
+# Take optimal ncomp
+rmsepcv.pls2 <- pls::MSEP(pls_prod2, estimate = 'CV')
+ncp.optim2 <- which.min(rmsepcv.pls2$val["CV", , ]) - 1
+ncp.optim2 <- ifelse(ncp.optim2 == 0, 1, ncp.optim2)
+
+# Prévision
+prev_pls2 <- predict(object = pls_prod2, newdata = dt_test, ncomp = ncp.optim2)
+
+# On borne les prévisions si elles sont inférieures à 0
+prev_pls2 <- ifelse(prev_pls2[, 1, 1] < 0, 0, prev_pls2[, 1, 1])
+prev_pls2 <- unname(prev_pls2)
+```
+
+```{r}
+ncp.optim2
+```
+```{r}
+rmse_pls2 <- get_rmse(y_true = dt_test[, y], y_prev = prev_pls2)
+rmse_pls2
+```
+Cette rmse est supérieure à la rmse de la PLS avec uniquement les retards de y (273.5126 < 282.1821), il n'a donc pas d'amélioration de la prédiction. Cela peut avoir plusieurs explications : 
+
+- Les retards de x n'ont pas de lien avec la variable cible y : leur introduction ne contribue pas à améliorer les prévisions. Au contraire, les retards de x peuvent introduire du bruit dans le modèle et conduire à des prévisions de moins bonne qualité.
+
+-Les retards de x sont fortement corrélés avec d'autres variables explicatives (ici les retards de y) : Si les retards de x sont fortement corrélés avec les retards de y, cela peut entraîner un effet de multi-collinéarité dans le modèle PLS. Cela peut rendre difficile pour le modèle de déterminer quels coefficients attribuer à chaque variable explicative, ce qui peut entraîner des prévisions moins précises.
+
+```{r fig.width=8, fig.height=3, fig.align='center'}
+dt_prev_pls2 <- rbind(
+  copy(dt_test)[, .(date, y)][, prev_pls2 := prev_pls2],
+  copy(dt_train)[, .(date, y)][, prev_pls2 := NA]
+)
+
+dygraphs::dygraph(data = dt_prev_pls2, main = "PLS2 - prev vs true") %>% 
+  dygraphs::dySeries(name = "prev_pls2", color = "red")
+```
+### ajout des agrégats de lags
+
+```{r}
+# Ajout des agrégats de retards de x et y
+
+# ajout des moyennes mobiles pour les retards de x
+x_mean_lag <- paste0("x_mean_lag_", 1:14)
+dt_train[, (x_mean_lag) := lapply(.SD, zoo::rollmean, k=3, fill=NA, align="right"), .SDcols = xlag]
+
+# ajout des moyennes mobiles pour les retards de y
+y_mean_lag <- paste0("y_mean_lag_", 1:14)
+dt_train[, (y_mean_lag) := lapply(.SD, zoo::rollmean, k=3, fill=NA, align="right"), .SDcols = ylag]
+
+dt_train <- na.omit(dt_train)
+
+lags <- c(xlag, ylag, x_mean_lag, y_mean_lag) # on combine les retards de x, y et les moyennes mobiles
+
+# Estimation du modèle
+pls_prod3 <- pls::plsr(formula = y ~ .,
+                      data = dt_train[, .SD, .SDcols = c("y", lags)],
+                      validation = "CV")
+
+# Take optimal ncomp
+rmsepcv.pls3 <- pls::MSEP(pls_prod3, estimate = 'CV')
+ncp.optim3 <- which.min(rmsepcv.pls3$val["CV", , ]) - 1
+ncp.optim3 <- ifelse(ncp.optim3 == 0, 1, ncp.optim3)
+
+# Ajout des moyennes mobiles pour les retards de x dans les données de test
+dt_test[, (x_mean_lag) := lapply(.SD, zoo::rollmean, k=3, fill=NA, align="right"), .SDcols = xlag]
+
+# Ajout des moyennes mobiles pour les retards de y dans les données de test
+dt_test[, (y_mean_lag) := lapply(.SD, zoo::rollmean, k=3, fill=NA, align="right"), .SDcols = ylag]
+
+dt_test <- na.omit(dt_test)
+
+# Prévision
+prev_pls3 <- predict(object = pls_prod3, newdata = dt_test[, lags, with=FALSE], ncomp = ncp.optim3)
+
+# On borne les prévisions si elles sont inférieures à 0
+prev_pls3 <- ifelse(prev_pls3[, 1, 1] < 0, 0, prev_pls3[, 1, 1])
+prev_pls3 <- unname(prev_pls3)
+```
+
+```{r}
+ncp.optim3
+```
+```{r}
+rmse_pls3 <- get_rmse(y_true = dt_test[, y], y_prev = prev_pls3)
+rmse_pls3
+```
+Cette rmse est supérieure aux rmse des 2 autres PLS (PLS1 : 273.5126 < PLS2 : 282.1821 < PLS3 : 283.5689), il n'y a donc pas d'amélioration de la prédiction.
+
+
+```{r fig.width=8, fig.height=3, fig.align='center'}
+dt_prev_pls3 <- rbind(
+  copy(dt_test)[, .(date, y)][, prev_pls3 := prev_pls3],
+  copy(dt_train)[, .(date, y)][, prev_pls3 := NA]
+)
+
+dygraphs::dygraph(data = dt_prev_pls3, main = "PLS3 - prev vs true") %>% 
+  dygraphs::dySeries(name = "prev_pls3", color = "red")
+```
 
 ### ARIMA
 
