@@ -329,6 +329,45 @@ dygraphs::dygraph(data = dt_prev_pls3, main = "PLS3 - prev vs true") %>%
   dygraphs::dySeries(name = "prev_pls3", color = "red")
 ```
 
+
+
+### Regression LS
+
+```{r}
+# Estimation du modèle
+lm_prod <- lm(y ~ ., data = dt_train[, .SD, .SDcols = c("y", ylag)])
+
+# Prévision
+prev_lm <- predict(object = lm_prod, newdata = dt_test)
+
+# On borne les prévisions si elles sont inférieures à 0
+prev_lm <- ifelse(prev_lm < 0, 0, prev_lm)
+prev_lm <- unname(prev_lm)
+```
+
+```{r}
+# Calcul du RMSE
+rmse_lm <- get_rmse(y_true = dt_test[, y], y_prev = prev_lm)
+rmse_lm
+```
+Ce modèle de régression linéaire multiple sur les retards de la production y est moins performant que le premier modèle PLS prenant en compte uniquement les retards de la production y :  RMSE PLS : 273.5126 < 276.6974 : RMSE RegLin.
+
+```{r}
+# Concaténer les données pour dygraph
+dt_prev_RegLin <- cbind(dt_test[,"date",with=FALSE], dt_test[,"y",with=FALSE], prev_lm)
+colnames(dt_prev_RegLin) <- c("date", "y_true", "y_prev")
+
+# Convertir la date en format de date R
+# dt_prev_RegLin$date <- as.Date(dt_prev_RegLin$date)
+
+# Afficher le graphique dygraph
+dygraphs::dygraph(data = dt_prev_RegLin, main = "Régression linéaire - Production") %>%
+  dygraphs::dySeries(name = "y_true", color = "green")%>%
+  dygraphs::dySeries(name = "y_prev", color = "red")
+```
+
+
+
 ### ARIMA
 
 -   Implémenter un modèle type ARIMA. Comparez-le aux modèles PLS et LS.
